@@ -1,6 +1,9 @@
 document.addEventListener("DOMContentLoaded", () => {
   const boardContainer = document.getElementById("boardContainer");
   let draggedItem = null;
+  let draggedItemBoard = null;
+  let touchStartY = 0;
+  let touchStartX = 0;
 
   // Load data from localStorage or use initial data
   let boards = JSON.parse(localStorage.getItem("boards")) || [
@@ -56,6 +59,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const boardElement = createBoard(board);
       boardContainer.appendChild(boardElement);
     });
+    addEventListeners();
   }
 
   function createBoard(board) {
@@ -108,35 +112,131 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="card__description">${cardData.description}</div>
     `;
 
-    // Set up drag events
-    card.addEventListener("dragstart", (e) => {
-      draggedItem = card;
-      setTimeout(() => {
-        card.style.display = "none";
-      }, 0);
-    });
-
-    card.addEventListener("dragend", () => {
-      setTimeout(() => {
-        draggedItem.style.display = "block";
-        draggedItem = null;
-      }, 0);
-    });
-
-    // Set up close button
-    const closeBtn = card.querySelector(".card__close-btn");
-    closeBtn.addEventListener("click", () => {
-      card.remove();
-      updateBoardsData();
-    });
-
-    // Set up edit button
-    const editBtn = card.querySelector(".card__edit-btn");
-    editBtn.addEventListener("click", () => {
-      openEditModal(card);
-    });
-
     return card;
+  }
+
+  function addEventListeners() {
+    const cards = document.querySelectorAll(".card");
+    cards.forEach((card) => {
+      // Set up drag events for desktop
+      card.addEventListener("dragstart", handleDragStart);
+      card.addEventListener("dragend", handleDragEnd);
+
+      // Set up touch events for mobile
+      card.addEventListener("touchstart", handleTouchStart, { passive: false });
+      card.addEventListener("touchmove", handleTouchMove, { passive: false });
+      card.addEventListener("touchend", handleTouchEnd);
+
+      // Set up close button
+      const closeBtn = card.querySelector(".card__close-btn");
+      closeBtn.addEventListener("click", handleCardClose);
+
+      // Set up edit button
+      const editBtn = card.querySelector(".card__edit-btn");
+      editBtn.addEventListener("click", handleCardEdit);
+    });
+
+    // Add new card
+    const addCardBtns = document.querySelectorAll(".board__add-card-btn");
+    addCardBtns.forEach((btn) => {
+      btn.addEventListener("click", handleAddCard);
+    });
+
+    // Drag and drop functionality for desktop
+    boardContainer.addEventListener("dragover", handleDragOver);
+    boardContainer.addEventListener("dragend", updateBoardsData);
+  }
+
+  function handleDragStart(e) {
+    draggedItem = e.target.closest(".card");
+    draggedItemBoard = draggedItem.closest(".board");
+    setTimeout(() => {
+      draggedItem.style.opacity = "0.5";
+    }, 0);
+  }
+
+  function handleDragEnd() {
+    setTimeout(() => {
+      draggedItem.style.opacity = "1";
+      draggedItem = null;
+      draggedItemBoard = null;
+      updateBoardsData();
+    }, 0);
+  }
+
+  function handleTouchStart(e) {
+    draggedItem = e.target.closest(".card");
+    draggedItemBoard = draggedItem.closest(".board");
+    touchStartY = e.touches[0].clientY;
+    touchStartX = e.touches[0].clientX;
+    setTimeout(() => {
+      draggedItem.style.opacity = "0.5";
+    }, 0);
+  }
+
+  function handleTouchMove(e) {
+    if (!draggedItem) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const touchY = touch.clientY;
+    const touchX = touch.clientX;
+
+    draggedItem.style.position = "fixed";
+    draggedItem.style.top = `${touchY - draggedItem.offsetHeight / 2}px`;
+    draggedItem.style.left = `${touchX - draggedItem.offsetWidth / 2}px`;
+    draggedItem.style.zIndex = "1000";
+
+    const targetElement = document.elementFromPoint(touchX, touchY);
+    const cardList = targetElement.closest(".board__card-list");
+
+    if (cardList) {
+      const afterElement = getDragAfterElement(cardList, touchY);
+      if (afterElement == null) {
+        cardList.appendChild(draggedItem);
+      } else {
+        cardList.insertBefore(draggedItem, afterElement);
+      }
+    }
+  }
+
+  function handleTouchEnd(e) {
+    if (!draggedItem) return;
+    e.preventDefault();
+    draggedItem.style.opacity = "1";
+    draggedItem.style.position = "static";
+    draggedItem.style.zIndex = "auto";
+    draggedItem = null;
+    draggedItemBoard = null;
+    updateBoardsData();
+  }
+
+  function handleCardClose(e) {
+    const card = e.target.closest(".card");
+    card.remove();
+    updateBoardsData();
+  }
+
+  function handleCardEdit(e) {
+    const card = e.target.closest(".card");
+    openEditModal(card);
+  }
+
+  function handleAddCard(e) {
+    const boardId = parseInt(e.target.closest(".board").dataset.boardId);
+    openAddCardModal(boardId);
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+    const cardList = e.target.closest(".board__card-list");
+    if (cardList && draggedItem) {
+      const afterElement = getDragAfterElement(cardList, e.clientY);
+      if (afterElement == null) {
+        cardList.appendChild(draggedItem);
+      } else {
+        cardList.insertBefore(draggedItem, afterElement);
+      }
+    }
   }
 
   function handleSaveAction(modal, saveCallback) {
@@ -272,6 +372,7 @@ document.addEventListener("DOMContentLoaded", () => {
         emptyMessage.remove();
       }
       cardList.appendChild(cardElement);
+      addEventListeners();
       updateBoardsData();
     };
 
@@ -354,35 +455,6 @@ document.addEventListener("DOMContentLoaded", () => {
     modal.remove();
   }
 
-  // Add new card
-  boardContainer.addEventListener("click", (e) => {
-    if (e.target.classList.contains("board__add-card-btn")) {
-      const boardId = parseInt(e.target.closest(".board").dataset.boardId);
-      openAddCardModal(boardId);
-    }
-  });
-
-  // Drag and drop functionality
-  boardContainer.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    const afterElement = getDragAfterElement(
-      e.target.closest(".board__card-list"),
-      e.clientY
-    );
-    const cardList = e.target.closest(".board__card-list");
-    if (cardList) {
-      if (afterElement == null) {
-        cardList.appendChild(draggedItem);
-      } else {
-        cardList.insertBefore(draggedItem, afterElement);
-      }
-    }
-  });
-
-  boardContainer.addEventListener("dragend", (e) => {
-    updateBoardsData();
-  });
-
   function getDragAfterElement(cardList, y) {
     const draggableElements = [
       ...cardList.querySelectorAll(".card:not(.dragging)"),
@@ -404,26 +476,32 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function updateBoardsData() {
     const boardElements = document.querySelectorAll(".board");
-    boardElements.forEach((boardElement, index) => {
+    boards = Array.from(boardElements).map((boardElement) => {
       const boardId = parseInt(boardElement.dataset.boardId);
-      const board = boards.find((b) => b.id === boardId);
-      board.title = boardElement.querySelector(".board__title").textContent;
+      const title = boardElement.querySelector(".board__title").textContent;
       const cardList = boardElement.querySelector(".board__card-list");
       const cardElements = cardList.querySelectorAll(".card");
-      board.cards = Array.from(cardElements).map((card) => ({
+      const cards = Array.from(cardElements).map((card) => ({
         title: card.querySelector(".card__title").textContent,
         description: card.querySelector(".card__description").textContent,
       }));
 
-      // Update empty state message
+      return { id: boardId, title, cards };
+    });
+
+    boardElements.forEach((boardElement) => {
+      const cardList = boardElement.querySelector(".board__card-list");
+      const cards = cardList.querySelectorAll(".card");
       const emptyMessage = cardList.querySelector(".board__empty-message");
-      if (board.cards.length === 0 && !emptyMessage) {
+
+      if (cards.length === 0 && !emptyMessage) {
         cardList.innerHTML =
           '<p class="board__empty-message">Empty category.</p>';
-      } else if (board.cards.length > 0 && emptyMessage) {
+      } else if (cards.length > 0 && emptyMessage) {
         emptyMessage.remove();
       }
     });
+
     // Save to localStorage
     localStorage.setItem("boards", JSON.stringify(boards));
   }
